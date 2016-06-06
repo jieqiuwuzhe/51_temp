@@ -1,0 +1,76 @@
+C51 COMPILER V9.52.0.0   1602                                                              05/15/2015 14:18:00 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE 1602
+OBJECT MODULE PLACED IN 1602.OBJ
+COMPILER INVOKED BY: D:\Program Files (x86)\keil\C51\BIN\C51.EXE 1602.c BROWSE DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          
+   2          #include<reg51.h> 
+   3          #include"lcd.h"
+   4          
+   5          //--定义全局变量--//
+   6          
+   7          
+   8          extern unsigned char m,n,p,mm,nn,pp;
+   9          
+  10          /*******************************************************************************
+  11          * 函 数 名         : main
+  12          * 函数功能       : 主函数
+  13          * 输    入         : 无
+  14          * 输    出         : 无
+  15          *******************************************************************************/
+  16          void show1(signed int dd)
+  17          {
+  18   1        int tt=0; 
+  19   1        tt= (unsigned int)(dd*0.625+0.5); //放大10倍输出并四舍五入
+  20   1        m=(char)((tt/100)+48);        //分离出十位
+  21   1        n=(char)(((tt%100)/10)+48); //分理出个位
+  22   1        p=(char)((tt%10)+48);       //分理处小数位
+  23   1      
+  24   1        LcdWriteCom(0x88);
+  25   1        LcdWriteData(m);
+  26   1        LcdWriteCom(0x89);
+  27   1        LcdWriteData(n);
+  28   1        LcdWriteCom(0x8B);
+  29   1        LcdWriteData(p);
+  30   1        
+  31   1      } 
+  32            
+  33          void show2(signed int dd)
+  34          { 
+  35   1        int tt=0; 
+  36   1          
+  37   1        tt= (unsigned int)(dd*0.625+0.5); //放大10倍输出并四舍五入
+  38   1        mm=(char)((tt/100)+48);       //分离出十位
+  39   1        nn=(char)(((tt%100)/10)+48);  //分理出个位
+  40   1        pp=(char)((tt%10)+48);        //分理处小数位
+  41   1          
+  42   1        LcdWriteCom(0xC8);
+  43   1        LcdWriteData(mm);
+  44   1        LcdWriteCom(0xC9);
+  45   1        LcdWriteData(nn);
+  46   1        LcdWriteCom(0xCB);
+  47   1        LcdWriteData(pp);
+  48   1      
+  49   1        
+  50   1          
+  51   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    248    ----
+C51 COMPILER V9.52.0.0   1602                                                              05/15/2015 14:18:00 PAGE 2   
+
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

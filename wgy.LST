@@ -1,0 +1,442 @@
+C51 COMPILER V9.52.0.0   WGY                                                               05/15/2015 14:17:59 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE WGY
+OBJECT MODULE PLACED IN wgy.OBJ
+COMPILER INVOKED BY: D:\Program Files (x86)\keil\C51\BIN\C51.EXE wgy.c BROWSE DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          /*****************************************************/
+   2          
+   3          /*****************************************************/
+   4          #include<reg51.h>
+   5          #include"lcd.h"
+   6          #define Kp 1  //比例系数 
+   7          #define Ki 0.25 //积分系数
+   8          #define Kd 1  //微分系数
+   9          
+  10          #define speed 1
+  11           //Motor
+  12          sbit PH1 = P2^4;    //步进电机管脚
+  13          sbit PH2 = P2^3;
+  14          sbit I01 = P2^2;
+  15          sbit I11 = P2^1;
+  16          sbit I02 = P2^0;
+  17          sbit I12 = P1^7;
+  18          
+  19          unsigned char m,n,p,mm,nn,pp;          //温度的个位、十位、小数
+  20          unsigned char test_temp;       //温度检定标志
+  21          unsigned char key_set_flag;    //按键设定进入标志
+  22          unsigned char key_hold;        //按键保持标志
+  23          unsigned char Change_step=1;   //温度设置步进
+  24          unsigned char first=1;    //首次加热标志
+  25          
+  26          int Real_temp;    //实际温度
+  27          int Set_temp;     //设置温度
+  28          //int Disp_temp;    //显示温度
+  29          int last_error;   //上次误差
+  30          float I_term;     //前面温差和
+  31          
+  32          int PID_MAX;
+  33          unsigned int out,PWMT,counter;
+  34          int time;     //可控硅脉冲触发时刻
+  35          
+  36          sbit DQ=P1^6; //定义DS18b20引脚
+  37          sbit PWM=P2^2;  //PWM控制引脚
+  38          sbit heat=P1^5; //加热继电器控制引脚
+  39          
+  40          
+  41          /*****延时子程序*****/
+  42          void delay(unsigned int t)
+  43          {
+  44   1        for(;t>0;t--);
+  45   1      }
+  46          void delay_50us(unsigned int t)
+  47          {
+  48   1        unsigned char j;
+  49   1        for(;t>0;t--)
+  50   1          for(j=19;j>0;j--);
+  51   1      }
+  52          
+  53          void motor_delay(int time)
+  54          { 
+  55   1        int i,j;
+C51 COMPILER V9.52.0.0   WGY                                                               05/15/2015 14:17:59 PAGE 2   
+
+  56   1        
+  57   1        for(j=0; j <= time; j++)
+  58   1         for(i =0 ; i <= 120; i++);
+  59   1      }
+  60          
+  61          void Go()
+  62          {  //步进电机控制程序四线双极性单四拍工作
+  63   1          PH1 = 0;  
+  64   1          I01 = 0;
+  65   1          I11 = 0;  
+  66   1        
+  67   1      
+  68   1          PH2 = 0;  
+  69   1          I02 = 1;
+  70   1          I12 = 1;   
+  71   1      
+  72   1          motor_delay(speed);
+  73   1          
+  74   1          PH1 = 0;  
+  75   1          I01 = 1;  
+  76   1          I11 = 1;
+  77   1        
+  78   1        
+  79   1          PH2 = 1;  
+  80   1          I02 = 0;  
+  81   1          I12 = 0;
+  82   1      
+  83   1          motor_delay(speed);
+  84   1          
+  85   1          PH1 = 1;   
+  86   1          I01 = 0;   
+  87   1          I11 = 0;
+  88   1        
+  89   1      
+  90   1          PH2 = 1;  
+  91   1          I02 = 1;  
+  92   1          I12 = 1;
+  93   1                   
+  94   1          motor_delay(speed);
+  95   1          
+  96   1          PH1 = 1;   
+  97   1          I01 = 1;
+  98   1          I11 = 1;
+  99   1        
+ 100   1      
+ 101   1          PH2 = 0;  
+ 102   1          I02 = 0;
+ 103   1          I12 = 0;
+ 104   1      
+ 105   1          motor_delay(speed);
+ 106   1                     
+ 107   1      }
+ 108          
+ 109          /*****初始化DS18B20*****/
+ 110          unsigned char Init_DS18B20(void)
+ 111          {
+ 112   1        unsigned char x=0;
+ 113   1        DQ = 1;      //DQ复位
+ 114   1        delay(8);    //稍作延时
+ 115   1        DQ = 0;      //单片机将DQ拉低
+ 116   1        delay(80);   //精确延时，大于480us
+ 117   1        DQ = 1;      //拉高总线
+C51 COMPILER V9.52.0.0   WGY                                                               05/15/2015 14:17:59 PAGE 3   
+
+ 118   1        delay(8);
+ 119   1        x = DQ;      //稍作延时后,若x=0则初始化成功,x=1则初始化失败
+ 120   1        delay(4);
+ 121   1        return x;
+ 122   1      }
+ 123          
+ 124          /*****读一个字节*****/
+ 125          unsigned char ReadOneChar(void)
+ 126          {
+ 127   1        unsigned char i=0;
+ 128   1        unsigned char dat = 0;
+ 129   1        for (i=8;i>0;i--)
+ 130   1        {
+ 131   2          DQ = 0;     // 给脉冲信号
+ 132   2          dat>>=1;
+ 133   2          DQ = 1;     // 给脉冲信号
+ 134   2          if(DQ)
+ 135   2            dat|=0x80;
+ 136   2        delay(4);
+ 137   2        }
+ 138   1        return(dat);
+ 139   1      }
+ 140          
+ 141          /*****写一个字节*****/
+ 142          void WriteOneChar(unsigned char dat)
+ 143          {
+ 144   1        unsigned char i=0;
+ 145   1        for (i=8; i>0; i--)
+ 146   1        {
+ 147   2          DQ = 0;
+ 148   2          DQ = dat&0x01; 
+ 149   2        delay(4);
+ 150   2          DQ = 1;
+ 151   2          dat>>=1;
+ 152   2        }
+ 153   1        delay(4);
+ 154   1      }
+ 155          
+ 156          /*****读取温度*****/
+ 157          int ReadTemperature(void)
+ 158          {
+ 159   1        unsigned char a=0;
+ 160   1        unsigned char b=0;
+ 161   1        unsigned int t=0;
+ 162   1      
+ 163   1        t=Init_DS18B20();
+ 164   1        if(t) return Real_temp;
+ 165   1        WriteOneChar(0xCC);  //跳过读序号列号的操作
+ 166   1        WriteOneChar(0x44);  //启动温度转换
+ 167   1      //  delay(10);
+ 168   1        t=Init_DS18B20();
+ 169   1        if(t) return Real_temp;
+ 170   1        WriteOneChar(0xCC);  //跳过读序号列号的操作
+ 171   1        WriteOneChar(0xBE);  //读取温度寄存器
+ 172   1        a=ReadOneChar();     //读低8位
+ 173   1        b=ReadOneChar();     //读高8位
+ 174   1        t=b;
+ 175   1        t<<=8;
+ 176   1        t=t|a;
+ 177   1        if(t<=0||t>0x900) return Real_temp;
+ 178   1        return(t);
+ 179   1      }
+C51 COMPILER V9.52.0.0   WGY                                                               05/15/2015 14:17:59 PAGE 4   
+
+ 180          
+ 181          
+ 182          extern void LcdInit();
+ 183          extern void show1(signed int dd);
+ 184          extern void show2(signed int dd);
+ 185          
+ 186          void key_set(void)
+ 187          {
+ 188   1        unsigned char key_value;
+ 189   1          
+ 190   1        key_value=P1;
+ 191   1        
+ 192   1        key_value&=0x07;  //提取按键键值
+ 193   1        
+ 194   1        if(key_value!=7)  //按键按下
+ 195   1        { 
+ 196   2          if(!key_hold)   //按键第一次按下
+ 197   2          { 
+ 198   3            key_hold=1;   //按键保持按下状态      
+ 199   3            switch (key_value)
+ 200   3            {
+ 201   4              //set键按下
+ 202   4              case 6: { if(key_set_flag==0)   //首次进入温度设置
+ 203   5                    {
+ 204   6                      key_set_flag=1;   //进入温度设定状态      
+ 205   6                    }else
+ 206   5                    {
+ 207   6                      key_set_flag=0;     //清空温度设定标志
+ 208   6                      Change_step=1;      //恢复缺省设定步进值
+ 209   6                    }
+ 210   5                    break;
+ 211   5                  }
+ 212   4              //+键按下
+ 213   4              case 5: { if(key_set_flag) {Set_temp+=Change_step;show1(Set_temp);}
+ 214   5                
+ 215   5                    break;
+ 216   5                  }
+ 217   4              //-键按下
+ 218   4              case 3: { if(key_set_flag) {Set_temp-=Change_step;show1(Set_temp);}
+ 219   5                    break;
+ 220   5                  }
+ 221   4              default:  break;
+ 222   4            }
+ 223   3      
+ 224   3          }
+ 225   2          else if(key_set_flag)
+ 226   2          { //按键一直处于按下状态
+ 227   3            key_hold++;
+ 228   3            if(key_hold>5)  //按键计数超过设定时长
+ 229   3            { 
+ 230   4              Change_step=16; //设定步长按1度步进
+ 231   4              key_hold=0;   //清空按键保持状态,进入加减按键功能
+ 232   4            }
+ 233   3                   
+ 234   3          }
+ 235   2        }else if(key_hold)
+ 236   1        { 
+ 237   2          key_hold=0;  //按键松开状态
+ 238   2          Change_step=1;
+ 239   2        }
+ 240   1      }
+ 241          
+C51 COMPILER V9.52.0.0   WGY                                                               05/15/2015 14:17:59 PAGE 5   
+
+ 242          int PID(int Set_value,int Real_value) //标准PID温度控制算法
+ 243          {
+ 244   1        int error;
+ 245   1        float P_term, D_term;
+ 246   1        int pid_out;
+ 247   1      
+ 248   1        error=Set_value - Real_value;//误差量
+ 249   1      
+ 250   1        P_term =Kp*error; //比例量
+ 251   1        
+ 252   1        I_term+=Ki*error; //积分量
+ 253   1        if(I_term>PID_MAX) I_term=PID_MAX;  //限定积分量上限
+ 254   1        else if(I_term<0) I_term=0;         //限定积分量下限
+ 255   1      
+ 256   1        D_term =Kd*(error - last_error);  //微分量
+ 257   1      
+ 258   1        last_error=error; //缓存当前误差量
+ 259   1      
+ 260   1        pid_out=(signed int)(P_term+I_term+D_term); //PID控制量计算
+ 261   1        if(pid_out>PID_MAX) pid_out=PID_MAX;    //控制量上限=PID_MAX
+ 262   1        else if(pid_out<0) pid_out=0;       //控制量下限=0
+ 263   1      
+ 264   1        return(pid_out);  
+ 265   1      }
+ 266          
+ 267          
+ 268          void Init0(void) interrupt 0
+ 269          {
+ 270   1        TH0=time>>8;
+ 271   1        TL0=time&0x00FF;
+ 272   1        
+ 273   1        TF0=0;
+ 274   1        ET0=1;
+ 275   1      
+ 276   1        counter++;
+ 277   1      }
+ 278          
+ 279          void T0_int(void) interrupt 1
+ 280          {
+ 281   1        TH0=0xFF;
+ 282   1        TL0=0x80;
+ 283   1      
+ 284   1        if(PWM) 
+ 285   1        { PWM=0;
+ 286   2          TH0=0xDA;
+ 287   2          TL0=0x00;   
+ 288   2        }
+ 289   1        else  PWM=1;
+ 290   1      }
+ 291          
+ 292          
+ 293          void main()
+ 294          { 
+ 295   1        //motor=0;
+ 296   1        LcdInit();
+ 297   1        heat=1;+
+ 298   1        PWMT=128;     //128级步进PWM控制    
+ 299   1        PID_MAX=PWMT;+
+ 300   1        counter=0;
+ 301   1        out=0;
+ 302   1        PWM=0;
+ 303   1      
+C51 COMPILER V9.52.0.0   WGY                                                               05/15/2015 14:17:59 PAGE 6   
+
+ 304   1        I_term=0;
+ 305   1        last_error=0;
+ 306   1      
+ 307   1        Set_temp=80;    //初始设定温度65度
+ 308   1        Set_temp<<=4;
+ 309   1        show1(Set_temp);
+ 310   1        Real_temp=Set_temp;
+ 311   1      //show2(Real_temp);
+ 312   1        
+ 313   1          Init_DS18B20();
+ 314   1          WriteOneChar(0xCC); //跳过读序号列号的操作
+ 315   1          WriteOneChar(0x44); //启动温度转换
+ 316   1         delay_50us(15000);   //等待温度测量
+ 317   1      
+ 318   1        TMOD=0x01;      //定时器0模式1
+ 319   1        TH0=0xFD;      //初始计数字用于780us定时
+ 320   1        TL0=0x00;     
+ 321   1        TR0=1;
+ 322   1        ET0=1;
+ 323   1        IT0=1;
+ 324   1        EX0=1; 
+ 325   1        EA=1;
+ 326   1      
+ 327   1        while(first)
+ 328   1        {
+ 329   2          heat=0;
+ 330   2      //    motor=0;
+ 331   2          if(counter>=5) 
+ 332   2          {
+ 333   3            test_temp+=1; //5*20ms=100ms 进行一次温度检定
+ 334   3            counter=0;
+ 335   3          }
+ 336   2          if(test_temp==20)   //温度检定标志置位,进入温度PID调节
+ 337   2          {
+ 338   3            Real_temp=ReadTemperature(); //采集当前实际温度
+ 339   3      
+ 340   3            out=PID(Set_temp,Real_temp); //PID程序
+ 341   3            
+ 342   3          time=~((9500/PID_MAX)*(PID_MAX-out)+250); //可控硅触发时刻计数
+ 343   3            
+ 344   3            test_temp=0;         //检定完成,清空检定标志
+ 345   3          }
+ 346   2      
+ 347   2          Real_temp=ReadTemperature();  //读取当前温度  
+ 348   2          
+ 349   2          show2(Real_temp);
+ 350   2          out=PID(Set_temp,Real_temp);  //PID程序
+ 351   2          
+ 352   2          //显示温度(设定状态时显示设定温度,非设定状态时显示实际温度)   
+ 353   2          //if(!key_set_flag) Disp_temp=Real_temp;
+ 354   2            
+ 355   2          //    display(Disp_temp);
+ 356   2          
+ 357   2          key_set();  //按键温度设置
+ 358   2      
+ 359   2          if(Real_temp>=1550)//1550
+ 360   2          {
+ 361   3            first=0;
+ 362   3            heat=1;
+ 363   3            Go();
+ 364   3          }
+ 365   2          
+C51 COMPILER V9.52.0.0   WGY                                                               05/15/2015 14:17:59 PAGE 7   
+
+ 366   2        }
+ 367   1        
+ 368   1        while(1)
+ 369   1        { if(counter>=5) 
+ 370   2          {
+ 371   3            test_temp=1;  //5*20ms=100ms 进行一次温度检定
+ 372   3            counter=0;
+ 373   3          }
+ 374   2          if(test_temp)   //温度检定标志置位,进入温度PID调节
+ 375   2          {
+ 376   3            Real_temp=ReadTemperature(); //采集当前实际温度
+ 377   3            out=PID(Set_temp,Real_temp); //PID程序
+ 378   3            
+ 379   3          time=~((9500/PID_MAX)*(PID_MAX-out)+250); //可控硅触发时刻计数
+ 380   3            
+ 381   3            test_temp=0;         //检定完成,清空检定标志
+ 382   3          }
+ 383   2      
+ 384   2          Real_temp=ReadTemperature();  //读取当前温度  
+ 385   2          show2(Real_temp);
+ 386   2          out=PID(Set_temp,Real_temp);  //PID程序
+ 387   2          
+ 388   2          //显示温度(设定状态时显示设定温度,非设定状态时显示实际温度)   
+ 389   2      
+ 390   2          
+ 391   2          key_set();  //按键温度设置
+ 392   2      
+ 393   2          if(Real_temp <(Set_temp))
+ 394   2          {
+ 395   3              heat=0;
+ 396   3          }
+ 397   2          else
+ 398   2          {
+ 399   3              heat=1;
+ 400   3              if(Real_temp > (Set_temp+50))
+ 401   3              {
+ 402   4                Go();
+ 403   4              }
+ 404   3      
+ 405   3        }
+ 406   2      }
+ 407   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1120    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     31      10
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
